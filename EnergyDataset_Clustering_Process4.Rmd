@@ -1,0 +1,344 @@
+---
+title: "Increase Accuracy through Clustering"
+author: "Sudha Subramanian"
+date: "September 2016"
+output:
+  html_document: default
+  pdf_document: default
+---
+####&nbsp;  
+\n  
+\n  
+
+####Case Study: Increasing Accuracy and Fitness through Clustering  
+#####           Comparative Study across 3 different Datasets  
+![](IncreaseAccuracyByClustering.jpg)  
+\n  
+\n  
+\n  
+
+#####CHALLENGE - How best to make the model a good fit and generalize well on newly presented data, without overfitting to training data?  
+\n  
+
+* Problem of overfitting - models the training data too well (negatively impacts performance of the model on new data)  
+* Problem of underfittng - neither model the training data nor generalize to new data  
+
+
+```{r, echo=FALSE, message=FALSE}
+library(ggplot2)
+library(ggmap)
+library(dplyr)
+library(caret)
+library(corrplot)
+library(data.table)
+library(ggdendro)
+library(cluster)
+library(flexclust)
+setwd("//dcsinfosys.com/DCS/Users/ssubramanian/Documents/Analytics Related/ICBAI Related")
+```
+#### Comparative Study - Advantages of Clustering
+* Modeling done on entire population; then clustering was applied and modeling done on subpopulation using same set of independent variables  
+* 1-3% accuracy observed across all datasets, without changing the set of independent variables used to build the model  
+\n  
+
+Three different datasets used for this exercise  
+  1. Energy data for all states in the US from 2000 to 2013; includes State, Year, generation from various sources, prices for various sectors, sales, financial / regulatory incentives etc.; to predict if there will be increase in Solar Energy Generation  
+  2. Stock Returns for company's stocks between 2000 and 2009 for first 11 months of the year; to predict if there will be increase or not in 12th month  
+  3. Medicare reimbursement costs in 2008, with binary variables indicating if patient had diagnosis for the disorder in the year; predict costs for following year based on reimbursements in the previous year
+
+  
+##### Results:  
+![](CaseStudy_SummaryResults.jpg)  
+
+
+\n
+\n
+
+#### Energy Dataset  
+
+#### Load Energy Dataset:  
+```{r}
+energy = read.csv("energy.csv")
+```
+
+```{r, echo=FALSE}
+EnergyData = energy[, c("GenTotal", "GenHydro", "AllSourcesCO2", "EPriceTotal", "EsalesTotal", "CumlRegulatory", "Total.salary", "Import", "presidential.results", "GenSolarBinary")]
+energy = filter(energy, !is.na(AllSourcesCO2))
+EnergyData = filter(EnergyData, !is.na(AllSourcesCO2))
+```
+
+Target Variable: GenSolarBinary (whether there will be increase in Solar Power Generation or not)  
+\n  
+Independent Variables:  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Information for all 50 states from 2000 to 2013  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Values normalized by population of the State for the year  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Generation Information  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Price across different sectors (Residential, Commercial, Industrial)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Incentives (Financial & Regulatory)  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Emission Information  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Annual Wages, Presidential Results, Importer of Energy  
+\n  
+\n  
+
+#### Correlation Plot  
+Shows correlation of the Independent Variables to the Outcome/Target Variable  
+(Plot of selected set of Independent Variables)  
+
+```{r, echo=FALSE, message=FALSE}
+corenergy = cor(EnergyData[1:10])
+diag(corenergy) <- 0
+corrplot(corenergy)
+```
+
+```{r, echo=FALSE, message=FALSE}
+statenames= read.csv("StateNames.csv")
+statenames$StateName=tolower(statenames$StateName)
+
+energy2 = filter(energy, !(STATE=="AK" | STATE=="HI"))
+statenames=filter(statenames, !(State=="AK" | State=="HI"))
+```
+
+\n  
+\n  
+
+#### Get Average Cost for Generation & Price by State  
+```{r, message=FALSE}
+AvgPriceByState = filter(energy, !(STATE=="AK" | STATE=="HI")) %>%
+  group_by(STATE) %>%
+  summarise(AvgGenTotal=mean(GenTotal), AvgPriceTotal=mean(EPriceTotal)) %>%
+  arrange(STATE)
+```
+
+\n  
+
+#### Load US Map:  
+
+```{r message=FALSE}
+us.dat <- map_data("state")
+```
+
+```{r echo=FALSE, message=FALSE}
+USMap=merge(us.dat, statenames, by.x="region", by.y="StateName")
+USMap = USMap %>%
+  arrange(region, order)
+```
+
+#### Merge datasets for plotting average price in US Map
+```{r}
+EnergyMap = merge(USMap, AvgPriceByState, by.x="State", by.y="STATE")
+```
+
+### ENERGY DATASET: VISUALIZATIONS
+#### PLOT: Average Cost for Generation by State
+```{r echo=FALSE, message=FALSE}
+ggplot(EnergyMap, aes(x=long, y=lat, group=group, order=order)) +
+  geom_polygon(aes(fill=AvgGenTotal), show.legend = TRUE, colour=alpha("white", 1/2), size=0.2) +
+  theme_bw() +
+  theme(legend.position="right", line=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.x=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(), axis.title.y=element_blank()) +
+  scale_fill_continuous(low="beige", high="hotpink")
+```
+
+#### PLOT: Average Energy Price by State
+```{r echo=FALSE, message=FALSE}
+ggplot(EnergyMap, aes(x=long, y=lat, group=group, order=order)) +
+  geom_polygon(aes(fill=AvgPriceTotal), show.legend = TRUE, colour=alpha("white", 1/2), size=0.2) +
+  labs(x="Average Price", y="") +
+  theme_grey() +
+  theme(legend.position="right", line=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.x=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(), axis.title.y=element_blank()) +
+  scale_fill_continuous(low="beige", high="hotpink")
+```
+
+#### BOX PLOT: Price by State
+* Shows the average energy costs across different States  
+* These are color coded by the party (Republican / Democrat); select States only shown  
+* Cost is highest in HI and lowest in WY  
+
+```{r echo=FALSE, message=FALSE}
+
+energy$Party=as.factor(ifelse(energy$presidential.results==1, "Democrat", "Republican"))
+
+p = ggplot(energy, aes(STATE, EPriceTotal))
+
+SelectStates=filter(energy, (STATE %in% c("AK", "HI", "AL", "CT", "DE", "AZ", "KY", "MA", "MD", "MN", "MS", "ND", "NJ", "SC", "TX", "VT", "WY")))
+p + geom_boxplot(data=SelectStates, aes(fill=Party)) +
+  theme_grey() +
+  theme(legend.position="none", line=element_blank())
+
+#avgbyState=as.data.frame(State=energy$STATE, AvgPrice=sort(tapply(energy$EPriceTotal, energy$STATE, mean)))
+avgbyState = energy %>%
+  group_by(STATE) %>%
+  summarise(AvgPrice=mean(EPriceTotal))
+```
+
+
+#### Histogram: Average Price
+##### Shows the price ranges across all States ($5-$9; $11-$15; >$20)
+\n  
+``` {r echo=FALSE, message=FALSE}
+ggplot(data=avgbyState) + 
+  geom_histogram(aes(x=AvgPrice), color="black", fill="lightpink", alpha=1.0) +
+  labs(x="Average Price") +
+  scale_x_continuous(breaks=1:23) +
+  scale_y_continuous(name="Avg Total Price by State") +
+  theme_grey() +
+  theme(line=element_blank())
+```
+
+Through visualization and correlation plot, Independent Variables were identified for Clustering.  These include:  
+* Total Price  
+* Incentives (Financial & Regulatory)  
+* Party (Presidential Results)  
+* Annual wages per capita  
+* State was importer or not  
+\n  
+\n  
+
+
+###CLUSTERING Applied  
+* K-means clustering chosen for the dataset; k=3 based on visualization of the data and also based on Dendrogram  
+* Data Normalized, so that all variables are given same importance  
+* Target variable excluded from the set of variables based on which clustering is done  
+
+#####Dendrogram Plot: To identify the number of clusters
+
+![](Dendrogram_3Clusters.jpg)  
+\n  
+
+``` {r echo=FALSE, message=FALSE}
+set.seed(144)
+spl=sample(1:nrow(energy), size=0.7*nrow(energy))
+train=energy[spl,]
+test=energy[-spl,]
+
+energyVec = as.vector(EnergyData)
+distance = dist(energyVec, method="euclidean")
+
+clusterIntensity = hclust(distance, method="ward.D")
+dhc = as.dendrogram(clusterIntensity)
+
+ddata = dendro_data(dhc, type="rectangle")
+p = ggplot(segment(ddata)) +
+  geom_segment(aes(x=x, y=y, xend=xend, yend=yend)) +
+  coord_flip() + 
+  scale_y_reverse(expand=c(0.2,0))
+```
+
+``` {r echo=FALSE, message=FALSE}
+mod = glm(GenSolarBinary ~ GenHydro + GenSolar + CumlFinancial + CumlRegulatory + Total.salary + Import, data=train, family="binomial")
+predmod = predict(mod, newdata=test, type="response")
+tfull=table(test$GenSolarBinary, predmod>=0.5)
+```
+
+``` {r echo=FALSE, message=FALSE}
+train.limited = train[, c(23,24,25,26,27)]
+test.limited=test[, c(23,24,25,26,27)]
+#train.limited=train
+#test.limited=test
+
+preproc = preProcess(train.limited)
+train.norm = predict(preproc, train.limited)
+test.norm = predict(preproc, test.limited)
+
+set.seed(144)
+km = kmeans(train.norm, centers=3, iter.max = 1000)
+```
+#### Cluster Sizes  
+km$size  
+\n  
+
+
+#### CLUSTER PLOTS  
+&nbsp; \n  
+Cluster plot shows the distribution of the entire population.  This creates a bivariate plot visualizing the clusters, using principal components.  \n  
+\n  
+
+
+##### Entire Population (TRAINING DATA):  
+![](TrainData_EntirePopulation.jpg)  
+\n  
+ 
+##### Clustering Applied (TRAINING DATA): 
+![](TrainData_Subpopulation.jpg)  
+\n  
+
+``` {r echo=FALSE, message=FALSE}
+km4=kmeans(train.norm, centers=1, iter.max=1000)
+```
+
+
+##### Entire Population (TESTING DATA):  
+![](Image_WholePopulation_Example.jpg)  
+\n  
+ 
+##### Clustering Applied (TESTING DATA): 
+![](Image_ClusterTest_Example.jpg)  
+\n  
+
+``` {r echo=FALSE, message=FALSE}
+km3=kmeans(test.norm, centers=1, iter.max=1000)
+```
+
+``` {r echo=FALSE, message=FALSE}
+km2=kmeans(test.norm, centers=3, iter.max=1000)
+```
+
+``` {r echo=FALSE, message=FALSE}
+km.kcca = as.kcca(km, train.norm)
+clusterTrain = predict(km.kcca)
+clusterTest = predict(km.kcca, newdata=test.norm)
+
+train1 = subset(train, clusterTrain==1)
+train2 = subset(train, clusterTrain==2)
+train3 = subset(train, clusterTrain==3)
+
+test1 = subset(test, clusterTest==1)
+test2 = subset(test, clusterTest==2)
+test3 = subset(test, clusterTest==3)
+```
+
+### MODELING (Logistic Regression)  
+#### Entire Population  
+* Significant features identified  
+* GLM (Generalized Linear Model) applied  
+
+\n  
+\n  
+
+#### Confusion Matrix (Modeling on Entire Population)    
+![](EntirePopulationConfMatrix.png)  
+
+\n  
+\n  
+
+#### Subpopulation  
+* Models built on individual Clusters  
+* GLM Models built using adjusted set of features  
+* Overall Accuracy calculated based on accuracy for each cluster  
+
+
+#### Confusion Matrix (Modeling on Subpopulation after Clustering)  
+![](SubpopulationConfMatrix.png)  
+\n  
+\n  
+
+### Validating the Case Study
+Validation was done by applying the approach on datasets with varying percentage of training / test data.  
+Results of each of these runs are captured as shown below:  
+\n  
+
+![](ModelValidation.jpg)  
+\n  
+
+### Summarizing the Case Study
+\n  
+
+* Clustering is an unsupervised way of identifying inherent patterns in the data and grouping them  
+* We would expect decision trees could easily incorporate the defining features of a cluster into the first levels of the tree  
+* Emperical evidence shows that msot common forms of decision trees do not implement this behavior  
+* Outside of deep learning methods and advanced neural networks, most statistical models have limited adaptability to population nuance without over-fitting  
+* Through this technique, we are able to realize 1-3% increase in accuracy, that could make a big difference  
+* Within each cluster, any modeling technique can be applied.  For example, one cluster can be modeled as GLM, while other one could be a RF model  
+
+\n  
+\n  
+

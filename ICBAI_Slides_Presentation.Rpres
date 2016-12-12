@@ -1,0 +1,235 @@
+Comparing Accuracy of Models Built on Subpopulation vs. Entire Population
+========================================================
+author: Sudha Subramanian
+date: 12/19/2016
+autosize: true
+
+CHALLENGE
+========================================================
+
+How best to make the model a good fit and generalize well on newly presented data, without overfitting to training data? 
+
+- Increasing Accuracy & Fitness through Clustering
+  - Problem of overfitting
+  - Problem of underfitting
+- Comparative Study across 3 different Datasets
+- Advantages of Clustering
+
+
+COMPARATIVE STUDY
+========================================================
+left: 50%
+
+- Modeling done on entire population; then clustering was applied and modeling done on subpopulation using same set of independent variables
+- 1-3% accuracy observed across all datasets, without changing the set of independent variables used to build the model 
+
+***
+
+![](IncreaseAccuracyByClustering.jpg)  
+
+Unsupervised 
++
+Supervised
+
+
+Model - Entire Population 
+========================================================
+
+![](EntirePopulation.jpg)  
+
+
+
+Model - Subpopulation 
+========================================================
+
+![](SubPopulation.jpg)  
+
+
+DATASETS
+========================================================
+
+![](Datasets_Explained.jpg)  
+
+
+
+SUMMARY RESULTS
+========================================================
+
+![](Summary_Results.jpg)  
+
+
+
+Energy Dataset
+========================================================
+
+```{r, echo=FALSE, message=FALSE}
+library(ggplot2)
+library(ggmap)
+library(dplyr)
+library(caret)
+library(corrplot)
+library(data.table)
+library(ggdendro)
+library(cluster)
+library(flexclust)
+```
+```{r, echo=FALSE}
+energy = read.csv("energy.csv")
+```
+Target Variable: 
+- GenSolarBinary (whether there will be increase in Solar Power Generation or not)  
+  
+Independent Variables:  
+- Information for all 50 states from 2000 to 2013  
+- Values normalized by population of the State for the year  
+- Generation Information  
+- Price across different sectors (Residential, Commercial, Industrial)  
+- Incentives (Financial & Regulatory)  
+- Emission Information  
+- Annual Wages, Presidential Results, Importer of Energy  
+
+
+Correlation Plot
+========================================================
+
+```{r, echo=FALSE}
+EnergyData = energy[, c("GenTotal", "GenHydro", "AllSourcesCO2", "EPriceTotal", "EsalesTotal", "CumlRegulatory", "Total.salary", "Import", "presidential.results", "GenSolarBinary")]
+energy = filter(energy, !is.na(AllSourcesCO2))
+EnergyData = filter(EnergyData, !is.na(AllSourcesCO2))
+corenergy = cor(EnergyData[1:10])
+diag(corenergy) <- 0
+```
+![](CorrelationDiagram.png) 
+
+***
+  
+Energy Dataset 
+- Energy Generation
+- Usage & Cost
+- Greenhouse Emission
+- Incentives
+- Predict Solar Generation
+
+
+Visualizations
+========================================================
+left: 35%
+
+``` {r echo=FALSE, message=FALSE}
+avgbyState = energy %>%
+  group_by(STATE) %>%
+  summarise(AvgPrice=mean(EPriceTotal))
+
+ggplot(data=avgbyState) + 
+  geom_histogram(aes(x=AvgPrice), color="black", fill="lightpink", alpha=1.0) +
+  labs(x="Average Price") +
+  scale_x_continuous(breaks=1:23) +
+  scale_y_continuous(name="Avg Total Price by State") +
+  theme_grey() +
+  theme(line=element_blank())
+```
+
+***
+  
+```{r echo=FALSE, message=FALSE}
+statenames= read.csv("StateNames.csv")
+statenames$StateName=tolower(statenames$StateName)
+statenames=filter(statenames, !(State=="AK" | State=="HI"))
+
+AvgPriceByState = filter(energy, !(STATE=="AK" | STATE=="HI")) %>%
+  group_by(STATE) %>%
+  summarise(AvgGenTotal=mean(GenTotal), AvgPriceTotal=mean(EPriceTotal)) %>%
+  arrange(STATE)
+
+us.dat <- map_data("state")
+USMap=merge(us.dat, statenames, by.x="region", by.y="StateName")
+USMap = USMap %>%
+  arrange(region, order)
+EnergyMap = merge(USMap, AvgPriceByState, by.x="State", by.y="STATE")
+
+ggplot(EnergyMap, aes(x=long, y=lat, group=group, order=order)) +
+  geom_polygon(aes(fill=AvgGenTotal), show.legend = TRUE, colour=alpha("white", 1/2), size=0.2) +
+  theme_bw() +
+  theme(legend.position="right", line=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(), axis.title.x=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank(), axis.title.y=element_blank()) +
+  scale_fill_continuous(low="beige", high="hotpink")
+```
+
+Feature Selection
+========================================================
+
+Selected for Modeling:
+- Total Price
+- Incentives (Financial & Regulatory)
+- Party (Presidential Results)
+- Annual Wages Per Capita
+- Importer 
+
+
+K-Means Clustering
+========================================================
+
+![](ElbowMethod_OptimalClusters.png) 
+
+***
+  
+Selection of 'K':
+- intra-cluster variation is minimized
+- inter-cluster variation is differentiable
+- Optimal # of clusters - Elbow method
+
+
+Clusters - Explained
+========================================================
+
+Process of Clustering:
+- Dataset normalized
+- K-means Clustering (K=3)
+
+
+Mean values of key variables:
+
+![](Clusters_MeanOfKeyVariables.png) 
+
+
+Cluster Plots
+========================================================
+
+![](ClusterPlot_TrainingData.png) 
+
+
+![](ClusterPlot_TestData.png) 
+
+
+Accuracy of Models 
+========================================================
+
+![](Accuracy_MEP_MSP.png) 
+
+![](Accuracy_MSP_Clusters.png) 
+
+
+***
+
+
+
+![](ConfusionMatrix_MEP_MSP.png) 
+
+
+Validating the Case Study 
+========================================================
+
+![](ValidationResults.png) 
+
+
+Conclusion
+========================================================
+
+Key  Takeaways:
+- Hybrid approach (Unsupervised Learning & Supervised Modeling)
+- Cluster-then-predict approach
+- Modeling with features specific to clusters
+- Similar results observed for:
+  - Stock Returns dataset
+  - Medicare Reimbursement dataset
+- 1% to 3% increase in accuracy
+- 
